@@ -1,0 +1,2 @@
+cargo:rustc-env=TYPENUM_BUILD_CONSTS=/Users/linfengzhou/jubjub-plonk/target/debug/build/typenum-a9758bd50c71f077/out/consts.rs
+cargo:rustc-env=TYPENUM_BUILD_OP=/Users/linfengzhou/jubjub-plonk/target/debug/build/typenum-a9758bd50c71f077/out/op.rs
