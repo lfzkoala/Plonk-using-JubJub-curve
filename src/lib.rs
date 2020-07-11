@@ -7,6 +7,7 @@ use hades252::strategies::*;
 use hades252::WIDTH;
 
 pub mod jubjub;
+pub mod pedersen;
 
 #[cfg(test)]
 mod tests {

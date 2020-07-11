@@ -28,6 +28,17 @@ impl CurvePoint {
         })
     }
 
+    pub fn sign(&self) -> bool {
+        self.y < -self.y
+    }
+
+    pub fn zero_point() -> CurvePoint {
+        CurvePoint {
+            x: Scalar::zero(),
+            y: Scalar::one(),
+        }
+    }
+
     pub fn random_point() -> CurvePoint {
         loop {
             let x = Scalar::random(&mut rand::thread_rng());
@@ -53,7 +64,7 @@ lazy_static! {
         (-num) * dnum.invert().unwrap()
     };
 }
-type ValuedVar = (Variable, Scalar);
+pub type ValuedVar = (Variable, Scalar);
 pub fn curve_point_addition_gadget(
     composer: &mut StandardComposer,
     x1: ValuedVar,
@@ -128,6 +139,28 @@ pub fn curve_point_addition_gadget(
     return ((x3, x3d), (y3, y3d));
 }
 
+pub fn curve_point_multi_add_gadget(
+    composer: &mut StandardComposer,
+    points: &[(ValuedVar, ValuedVar)],
+) -> (ValuedVar, ValuedVar) {
+    if points.len() == 1 {
+        return points[0];
+    } else if points.len() == 2 {
+        return curve_point_addition_gadget(
+            composer,
+            points[0].0,
+            points[0].1,
+            points[1].0,
+            points[1].1,
+        );
+    } else {
+        let mid = points.len() / 2;
+        let sum1 = curve_point_multi_add_gadget(composer, &points[0..mid]);
+        let sum2 = curve_point_multi_add_gadget(composer, &points[mid..]);
+        return curve_point_addition_gadget(composer, sum1.0, sum1.1, sum2.0, sum2.1);
+    }
+}
+
 mod test {
     use super::*;
     use dusk_plonk::{commitment_scheme::kzg10::PublicParameters, fft::EvaluationDomain};
@@ -135,13 +168,56 @@ mod test {
     use std::time::Instant;
 
     #[test]
-    fn test_addition_associative() {
+    fn test_multi_addition() {
         const CAPACITY: usize = 1 << 12;
+        const USED_CAPACITY: usize = 1 << 12;
+        const NUM_SCALARS: usize = 256;
+        let mut composer = StandardComposer::new();
         // Setup OG params.
         let public_parameters =
             PublicParameters::setup(CAPACITY * 8, &mut rand::thread_rng()).unwrap();
-        let (ck, vk) = public_parameters.trim(CAPACITY * 8).unwrap();
-        let domain = EvaluationDomain::new(CAPACITY * 8).unwrap();
+        let (ck, vk) = public_parameters.trim(USED_CAPACITY * 8).unwrap();
+        let domain = EvaluationDomain::new(USED_CAPACITY * 8).unwrap();
+
+        let mut vars = Vec::new();
+        for i in 0..NUM_SCALARS {
+            let point = CurvePoint::random_point();
+            let xvar = composer.add_input(point.x);
+            let yvar = composer.add_input(point.y);
+            vars.push(((xvar, point.x), (yvar, point.y)));
+        }
+        let muti_add_sum = curve_point_multi_add_gadget(&mut composer, &vars);
+
+        let mut ordinary_sum = vars[0];
+        for i in 1..vars.len() {
+            ordinary_sum = curve_point_addition_gadget(
+                &mut composer,
+                vars[i].0,
+                vars[i].1,
+                ordinary_sum.0,
+                ordinary_sum.1,
+            );
+        }
+        let check = composer.add(
+            (Scalar::one(), (muti_add_sum.0).0),
+            (-Scalar::one(), (ordinary_sum.0).0),
+            Scalar::zero(),
+            Scalar::zero(),
+        );
+        composer.constrain_to_constant(check, Scalar::zero(), Scalar::zero());
+        composer.add_dummy_constraints();
+        composer.check_circuit_satisfied();
+    }
+
+    #[test]
+    fn test_addition_associative() {
+        const CAPACITY: usize = 1 << 6;
+        const USED_CAPACITY: usize = 1 << 3;
+        // Setup OG params.
+        let public_parameters =
+            PublicParameters::setup(CAPACITY * 8, &mut rand::thread_rng()).unwrap();
+        let (ck, vk) = public_parameters.trim(USED_CAPACITY * 8).unwrap();
+        let domain = EvaluationDomain::new(USED_CAPACITY * 8).unwrap();
 
         let point_a = CurvePoint::random_point();
         let point_b = CurvePoint::random_point();
